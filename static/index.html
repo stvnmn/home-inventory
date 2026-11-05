@@ -6,46 +6,72 @@
 <title>Home Inventory</title>
 <script src="/static/barcode-detector.js"></script>
 <style>
-  :root { --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --brand:#2563eb; --bad:#dc2626; --warn:#d97706; --ok:#059669; }
+  :root { color-scheme: light dark; --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --brand:#2563eb; --bad:#dc2626; --warn:#d97706; --ok:#059669;
+    --nav:#111827; --border:#d1d5db; --field:#fff; --chip:#e5e7eb; --gray:#9ca3af; --shadow:#0002; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --card:#1b1e25; --ink:#e5e7eb; --muted:#9ca3af; --brand:#3b82f6; --bad:#ef4444; --warn:#f59e0b; --ok:#10b981;
+      --nav:#1b1e25; --border:#374151; --field:#12141a; --chip:#2a2e38; --gray:#6b7280; --shadow:#0008; }
+  }
   * { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
-  nav { position: sticky; top: 0; z-index: 10; background: #111827; display: flex; gap: 4px; padding: 6px; overflow-x: auto; }
+  nav { position: sticky; top: 0; z-index: 10; background: var(--nav); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px max(6px, env(safe-area-inset-right)) 6px max(6px, env(safe-area-inset-left)); }
   nav .brand { color: #fff; font-weight: 700; padding: 8px 10px; white-space: nowrap; }
   nav button { background: transparent; color: #d1d5db; border: 0; padding: 8px 12px; border-radius: 8px; font-size: .95rem; white-space: nowrap; cursor: pointer; }
   nav button.active { background: var(--brand); color: #fff; }
   nav .badge { background: var(--bad); color: #fff; border-radius: 10px; padding: 0 6px; font-size: .75rem; margin-left: 4px; }
-  main { max-width: 720px; margin: auto; padding: 12px; }
+  nav .ico { display: none; }
+  main { max-width: 1000px; margin: auto; padding: 12px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left)); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; align-items: start; }
+  .grid .card { margin-bottom: 0; }
+  #add, #settings { max-width: 640px; margin: auto; }
+  /* Phones in portrait: bottom tab bar, no horizontal scrolling. */
+ in portrait: bottom tab bar, no horizontal scrolling. */
+  @media (max-width: 700px) and (orientation: portrait) {
+    nav { position: fixed; top: auto; bottom: 0; left: 0; right: 0; flex-wrap: nowrap; justify-content: space-around; gap: 0; padding: 4px 4px max(4px, env(safe-area-inset-bottom)); box-shadow: 0 -1px 4px #0004; }
+    nav .brand, nav .wide { display: none; }
+    nav button { flex: 1; min-width: 0; padding: 6px 2px; font-size: .7rem; display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; overflow: hidden; text-overflow: ellipsis; }
+    nav .ico { display: block; font-size: 1.25rem; line-height: 1; }
+    nav .badge { position: absolute; top: 0; right: 14%; margin: 0; }
+    body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+    #toast { bottom: calc(76px + env(safe-area-inset-bottom)) !important; max-width: 92vw; }
+  }
+  @media (max-height: 500px) and (orientation: landscape) { nav { position: static; } nav .brand { padding: 4px 8px; } nav button { padding: 4px 10px; } }
   .view { display: none; } .view.active { display: block; }
-  .card { background: var(--card); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 3px #0002; }
+  .card { background: var(--card); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 3px var(--shadow); }
   button.b { padding: 8px 12px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-size: .95rem; cursor: pointer; }
   button.alt { background: #6b7280; } button.danger { background: var(--bad); } button.ok { background: var(--ok); }
   button.sm { padding: 5px 9px; font-size: .85rem; }
-  input, select { padding: 9px; font-size: 1rem; width: 100%; margin: 4px 0; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+  input, select { padding: 9px; font-size: 1rem; width: 100%; margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--ink); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; } .filters > * { flex: 1 1 180px; }
+  .catrow { display: flex; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+  .catrow span { flex: 1; word-break: break-word; }
   .muted { color: var(--muted); font-size: .85rem; }
   .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
   .tag { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: .75rem; font-weight: 600; color: #fff; margin-right: 4px; }
-  .tag.bad { background: var(--bad); } .tag.warn { background: var(--warn); } .tag.ok { background: var(--ok); } .tag.gray { background: #9ca3af; } .tag.blue { background: var(--brand); }
-  .chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0 10px; }
-  .chip { background: #e5e7eb; border: 0; border-radius: 16px; padding: 6px 12px; font-size: .85rem; white-space: nowrap; cursor: pointer; }
+  .tag.bad { background: var(--bad); } .tag.warn { background: var(--warn); } .tag.ok { background: var(--ok); } .tag.gray { background: var(--gray); } .tag.blue { background: var(--brand); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+  .chip { background: var(--chip); color: var(--ink); border: 0; border-radius: 16px; padding: 6px 12px; font-size: .85rem; white-space: nowrap; cursor: pointer; }
   .chip.active { background: var(--brand); color: #fff; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-  .stat { background: var(--card); border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 1px 3px #0002; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .stat { background: var(--card); border-radius: 10px; padding: 10px 4px; text-align: center; box-shadow: 0 1px 3px var(--shadow); cursor: default; }
+  .stat.link { cursor: pointer; }
+  @media (max-width: 380px) { .stats { grid-template-columns: repeat(2, 1fr); } }
   .stat b { font-size: 1.4rem; display: block; }
   #reader { width: 100%; position: relative; display: none; margin: 8px 0; }
   #reader video { width: 100%; border-radius: 8px; background: #000; display: block; }
   #reader .guide { position: absolute; left: 6%; right: 6%; top: 30%; bottom: 30%; border: 2px solid #22c55e; border-radius: 8px; pointer-events: none; }
-  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; z-index: 20; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #374151; border: 1px solid #4b5563; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; z-index: 20; }
 </style>
 </head>
 <body>
 <nav>
   <span class="brand">🏠 Inventory</span>
-  <button data-view="items" class="active">Items</button>
-  <button data-view="add">+ Add / Scan</button>
-  <button data-view="alerts">Alerts<span id="alertBadge" class="badge" style="display:none"></span></button>
-  <button data-view="history">History</button>
-  <button data-view="settings">Settings</button>
+  <button data-view="items" class="active"><span class="ico">📦</span>Items</button>
+  <button data-view="add"><span class="ico">➕</span><span>Add<span class="wide"> / Scan</span></span></button>
+  <button data-view="alerts"><span class="ico">🔔</span>Alerts<span id="alertBadge" class="badge" style="display:none"></span></button>
+  <button data-view="history"><span class="ico">🕘</span>History</button>
+  <button data-view="settings"><span class="ico">⚙️</span>Settings</button>
 </nav>
 
 <main>
@@ -54,8 +80,12 @@
       <div class="stat"><b id="sItems">0</b><span class="muted">Products</span></div>
       <div class="stat"><b id="sRestock">0</b><span class="muted">Restock</span></div>
       <div class="stat"><b id="sExpiring">0</b><span class="muted">Expiring</span></div>
+      <div class="stat" id="wasteCard"><b id="sWaste">0</b><span class="muted">Discarded (30d)</span></div>
     </div>
-    <input id="search" type="search" placeholder="Search items or category…">
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search items or category…">
+      <select id="catFilter" aria-label="Filter by category"></select>
+    </div>
     <div class="chips" id="chips">
       <button class="chip active" data-f="all">All</button>
       <button class="chip" data-f="instock">In stock</button>
@@ -64,7 +94,7 @@
       <button class="chip" data-f="expiring">Expiring</button>
       <button class="chip" data-f="out">Out of stock</button>
     </div>
-    <div id="list"></div>
+    <div id="list" class="grid"></div>
   </section>
 
   <section id="add" class="view">
@@ -84,6 +114,7 @@
           <button class="b" id="saveBtn">Log in</button>
           <button class="b alt" id="useBtn">Start using one</button>
           <button class="b alt" id="finishBtn">Log one used up</button>
+          <button class="b danger" id="discardBtn">Discard one</button>
           <button class="b alt" id="cancelBtn">Cancel</button>
         </div>
       </div>
@@ -95,11 +126,16 @@
   </section>
 
   <section id="history" class="view">
-    <div id="historyList"></div>
+    <div id="historyList" class="grid"></div>
   </section>
 
   <section id="settings" class="view">
     <div class="card">
+      <strong>Categories</strong>
+      <p class="muted">Rename, merge (rename onto an existing name) or delete. Deleting leaves items uncategorized.</p>
+      <div class="row" style="flex-wrap:nowrap"><input id="newCat" placeholder="New category" maxlength="40"><button class="b" id="addCat">Add</button></div>
+      <div id="catList"></div>
+    </div>
       <strong>Pushover notifications</strong>
       <p class="muted" id="cfg"></p>
       <label class="muted">User key</label>
@@ -137,7 +173,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let items = [], cfg = {expiry_warn_days: 30}, filter = 'all', currentProductId = null;
+let items = [], categories = [], waste = {total: 0, last_30_days: 0, top: []}, cfg = {expiry_warn_days: 30}, filter = 'all', currentProductId = null;
 
 async function api(url, method, body) {
   const opts = {method: method || 'GET'};
@@ -192,8 +228,9 @@ function card(p) {
       <button class="b sm ok" onclick="quickAdd(${p.id})">+1 stock</button>
       ${p.in_stock > p.in_use ? `<button class="b sm" onclick="startUse(${p.id})">Start using</button>` : ''}
       ${p.in_stock ? `<button class="b sm alt" onclick="finish(${p.id})">Used up</button>` : ''}
+      ${p.in_stock ? `<button class="b sm danger" onclick="discard(${p.id})">Discard</button>` : ''}
       <button class="b sm alt" onclick="editItem(${p.id})">Edit</button>
-      <button class="b sm danger" onclick="delItem(${p.id})">Delete</button>
+      <button class="b sm alt danger" onclick="delItem(${p.id})">Delete</button>
     </div>
   </div>`;
 }
@@ -204,14 +241,30 @@ function renderItems() {
     all: () => true, instock: p => p.in_stock > 0, inuse: p => p.in_use > 0, restock: p => p.needs_restock,
     expiring: isExpiring, out: p => p.in_stock === 0,
   }[filter];
-  const rows = items.filter(f).filter(p => !q || (p.name + ' ' + (p.category || '')).toLowerCase().includes(q));
+  const cat = $('catFilter').value;
+  const rows = items.filter(f)
+    .filter(p => !cat || (cat === UNCAT ? !p.category : p.category === cat))
+    .filter(p => !q || (p.name + ' ' + (p.category || '')).toLowerCase().includes(q));
   $('list').innerHTML = rows.map(card).join('') || '<p class="muted">Nothing here.</p>';
+}
+
+const UNCAT = '\u0000uncategorized';
+function renderCategories() {
+  const sel = $('catFilter'), prev = sel.value;
+  sel.innerHTML = '<option value="">All categories</option>'
+    + categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)} (${c.products})</option>`).join('')
+    + `<option value="${UNCAT}">Uncategorized</option>`;
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+  $('cats').innerHTML = categories.map(c => `<option value="${esc(c.name)}">`).join('');
+  $('catList').innerHTML = categories.map((c, i) => `<div class="catrow"><span>${esc(c.name)} <small class="muted">${c.products} item${c.products === 1 ? '' : 's'}</small></span>
+    <button class="b sm alt" onclick="renameCat(${i})">Rename</button><button class="b sm danger" onclick="delCat(${i})">Delete</button></div>`).join('')
+    || '<p class="muted">No categories yet.</p>';
 }
 
 function renderAlerts() {
   const restock = items.filter(p => p.needs_restock);
   const expiring = items.filter(isExpiring).sort((a, b) => a.next_expiry.localeCompare(b.next_expiry));
-  const section = (title, rows) => rows.length ? `<h3>${title}</h3>${rows.map(card).join('')}` : '';
+  const section = (title, rows) => rows.length ? `<h3>${title}</h3><div class="grid">${rows.map(card).join('')}</div>` : '';
   $('alertList').innerHTML = section('Needs restock', restock) + section(`Expiring within ${cfg.expiry_warn_days} days`, expiring)
     || '<p class="muted">All good — nothing needs attention.</p>';
   const n = new Set([...restock, ...expiring].map(p => p.id)).size;
@@ -220,8 +273,10 @@ function renderAlerts() {
 }
 
 async function load() {
-  [items, cfg] = await Promise.all([api('/api/products'), api('/api/config')]);
-  $('cats').innerHTML = [...new Set(items.map(p => p.category).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join('');
+  [items, cfg, categories, waste] = await Promise.all([api('/api/products'), api('/api/config'), api('/api/categories'), api('/api/waste')]);
+  $('sWaste').textContent = waste.last_30_days;
+  $('wasteCard').title = `${waste.total} discarded all time` + (waste.top.length ? '. Most: ' + waste.top.map(t => `${t.name} (${t.n})`).join(', ') : '');
+  renderCategories();
   $('cfg').textContent = `Status: ${cfg.pushover_configured ? 'configured' : 'not configured (alerts print to the server log)'}. Get your user key from pushover.net and create an application there for the token.`;
   $('poUser').value = cfg.pushover_user || '';
   $('leadDays').value = cfg.restock_lead_days; $('warnDays').value = cfg.expiry_warn_days;
@@ -230,6 +285,24 @@ async function load() {
 }
 
 $('search').oninput = renderItems;
+$('catFilter').onchange = renderItems;
+$('wasteCard').onclick = () => {
+  const w = waste;
+  toast(`Discarded: ${w.last_30_days} in 30 days, ${w.total} all time` + (w.top.length ? `. Most: ${w.top.map(t => `${t.name} (${t.n})`).join(', ')}` : ''));
+};
+$('addCat').onclick = guard(async () => {
+  await api('/api/categories', 'POST', {name: $('newCat').value}); $('newCat').value = ''; await load();
+});
+window.renameCat = guard(async i => {
+  const old = categories[i].name, name = prompt('Rename category (use an existing name to merge)', old);
+  if (name === null || name.trim() === old) return;
+  await api('/api/categories/' + encodeURIComponent(old), 'PUT', {name}); toast('Renamed'); await load();
+});
+window.delCat = guard(async i => {
+  const c = categories[i];
+  if (!confirm(`Delete "${c.name}"?` + (c.products ? ` ${c.products} item(s) will become uncategorized.` : ''))) return;
+  await api('/api/categories/' + encodeURIComponent(c.name), 'DELETE'); toast('Deleted'); await load();
+});
 $('chips').onclick = e => {
   if (!e.target.dataset.f) return;
   filter = e.target.dataset.f;
@@ -239,6 +312,12 @@ $('chips').onclick = e => {
 
 const finish = guard(async id => { await api('/api/finish', 'POST', {product_id: id}); toast('Logged used up'); await load(); });
 window.finish = finish;
+const discard = guard(async id => {
+  const p = items.find(x => x.id === id);
+  if (!confirm(`Discard one ${p ? p.name : 'unit'}? This is logged as waste.`)) return;
+  await api('/api/discard', 'POST', {product_id: id}); toast('Logged as discarded'); await load();
+});
+window.discard = discard;
 const startUse = guard(async id => { await api('/api/open', 'POST', {product_id: id}); toast('Marked in use'); await load(); });
 window.startUse = startUse;
 window.quickAdd = guard(async id => {
@@ -267,7 +346,9 @@ async function loadHistory() {
   rows.forEach(u => {
     events.push({date: u.added_on, id: u.id, text: `Added ${esc(u.name)}${u.expires_on ? ` (exp ${u.expires_on})` : ''}`, undo: 'del', kind: 'ok'});
     if (u.opened_on) events.push({date: u.opened_on, id: u.id, text: `Started using ${esc(u.name)}`, undo: 'unopen', kind: 'blue'});
-    if (u.finished_on) events.push({date: u.finished_on, id: u.id, text: `Used up ${esc(u.name)}`, undo: 'unfinish', kind: 'gray'});
+    if (u.finished_on) events.push(u.discarded
+      ? {date: u.finished_on, id: u.id, text: `Discarded ${esc(u.name)}`, undo: 'unfinish', kind: 'bad'}
+      : {date: u.finished_on, id: u.id, text: `Used up ${esc(u.name)}`, undo: 'unfinish', kind: 'gray'});
   });
   events.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   $('historyList').innerHTML = events.map(e => `<div class="card row">
@@ -337,6 +418,7 @@ $('saveBtn').onclick = guard(async () => {
 });
 $('useBtn').onclick = guard(async () => { await startUse(await ensureProduct()); resetForm(); });
 $('finishBtn').onclick = guard(async () => { await finish(await ensureProduct()); resetForm(); });
+$('discardBtn').onclick = guard(async () => { await discard(await ensureProduct()); resetForm(); });
 
 // Scanning uses a WebAssembly (zxing-cpp) barcode detector bundled in /static, so it works
 // on iPhone Safari, which has no native BarcodeDetector.

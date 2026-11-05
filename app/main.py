@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS units (
   opened_on TEXT,
   finished_on TEXT
 );
+CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY COLLATE NOCASE);
 CREATE TABLE IF NOT EXISTS notified (key TEXT PRIMARY KEY, sent_on TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY COLLATE NOCASE, password_hash TEXT NOT NULL);
@@ -61,6 +62,8 @@ def init_db():
         c.executescript(SCHEMA)
         if "opened_on" not in [r["name"] for r in c.execute("PRAGMA table_info(units)")]:
             c.execute("ALTER TABLE units ADD COLUMN opened_on TEXT")
+        if "discarded" not in [r["name"] for r in c.execute("PRAGMA table_info(units)")]:
+            c.execute("ALTER TABLE units ADD COLUMN discarded INTEGER NOT NULL DEFAULT 0")
         # Carry over the single account created before multi-user support existed.
         old = {r["key"]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key IN ('auth_user','auth_hash')")}
         if old.get("auth_user") and old.get("auth_hash"):
@@ -169,13 +172,13 @@ def record_failure(ip: str):
 
 def product_stats(c, product_id: int, today: date, lead_days: int = 14) -> dict:
     rows = c.execute(
-        "SELECT added_on, expires_on, opened_on, finished_on FROM units WHERE product_id=? ORDER BY added_on, id",
+        "SELECT added_on, expires_on, opened_on, finished_on, discarded FROM units WHERE product_id=? ORDER BY added_on, id",
         (product_id,),
     ).fetchall()
     finished = sorted(
         (date.fromisoformat(r["finished_on"]), date.fromisoformat(r["added_on"]), r["opened_on"])
         for r in rows
-        if r["finished_on"]
+        if r["finished_on"] and not r["discarded"]
     )
     # Use period starts at the opened date when logged; otherwise when it was added or
     # when the previous one ran out, whichever is later.
@@ -495,6 +498,38 @@ def api_finish(body: FinishIn):
     return {"ok": True}
 
 
+@app.post("/api/discard")
+def api_discard(body: FinishIn):
+    """Marks one unit as thrown away (waste). It leaves stock but is excluded from usage-rate stats."""
+    with closing(db()) as c:
+        u = c.execute(
+            "SELECT id FROM units WHERE product_id=? AND finished_on IS NULL "
+            "ORDER BY expires_on IS NULL, expires_on, opened_on IS NULL, added_on, id LIMIT 1",
+            (body.product_id,),
+        ).fetchone()
+        if not u:
+            raise HTTPException(404, "no units in stock")
+        c.execute(
+            "UPDATE units SET finished_on=?, discarded=1 WHERE id=?",
+            ((body.finished_on or date.today()).isoformat(), u["id"]),
+        )
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/api/waste")
+def api_waste():
+    month_ago = (date.today() - timedelta(days=30)).isoformat()
+    with closing(db()) as c:
+        total = c.execute("SELECT COUNT(*) FROM units WHERE discarded=1").fetchone()[0]
+        recent = c.execute("SELECT COUNT(*) FROM units WHERE discarded=1 AND finished_on>=?", (month_ago,)).fetchone()[0]
+        top = c.execute(
+            "SELECT p.name, COUNT(*) n FROM units u JOIN products p ON p.id=u.product_id "
+            "WHERE u.discarded=1 GROUP BY p.id ORDER BY n DESC, p.name LIMIT 5"
+        ).fetchall()
+    return {"total": total, "last_30_days": recent, "top": [dict(r) for r in top]}
+
+
 class OpenIn(BaseModel):
     product_id: int
     opened_on: Optional[date] = None
@@ -601,7 +636,7 @@ def api_delete_product(product_id: int):
 def api_history():
     with closing(db()) as c:
         rows = c.execute(
-            "SELECT u.id, p.name, u.added_on, u.expires_on, u.opened_on, u.finished_on FROM units u "
+            "SELECT u.id, p.name, u.added_on, u.expires_on, u.opened_on, u.finished_on, u.discarded FROM units u "
             "JOIN products p ON p.id=u.product_id ORDER BY u.id DESC LIMIT 200"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -610,7 +645,7 @@ def api_history():
 @app.post("/api/units/{unit_id}/unfinish")
 def api_unfinish(unit_id: int):
     with closing(db()) as c:
-        c.execute("UPDATE units SET finished_on=NULL WHERE id=?", (unit_id,))
+        c.execute("UPDATE units SET finished_on=NULL, discarded=0 WHERE id=?", (unit_id,))
         c.commit()
     return {"ok": True}
 
@@ -619,6 +654,57 @@ def api_unfinish(unit_id: int):
 def api_delete_unit(unit_id: int):
     with closing(db()) as c:
         c.execute("DELETE FROM units WHERE id=?", (unit_id,))
+        c.commit()
+    return {"ok": True}
+
+
+class CategoryIn(BaseModel):
+    name: str
+
+
+def clean_category(name: str) -> str:
+    name = name.strip()
+    if not 1 <= len(name) <= 40 or "/" in name:
+        raise HTTPException(400, "Category name must be 1-40 characters and can't contain /")
+    return name
+
+
+@app.get("/api/categories")
+def api_categories():
+    with closing(db()) as c:
+        counts = {r["category"]: r["n"] for r in c.execute(
+            "SELECT category, COUNT(*) n FROM products WHERE category IS NOT NULL GROUP BY category")}
+        names = {r["name"] for r in c.execute("SELECT name FROM categories")} | set(counts)
+    return [{"name": n, "products": counts.get(n, 0)} for n in sorted(names, key=str.lower)]
+
+
+@app.post("/api/categories")
+def api_add_category(body: CategoryIn):
+    name = clean_category(body.name)
+    with closing(db()) as c:
+        c.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (name,))
+        c.commit()
+    return {"ok": True}
+
+
+@app.put("/api/categories/{old}")
+def api_rename_category(old: str, body: CategoryIn):
+    """Renames a category on all its products; renaming onto an existing name merges them."""
+    name = clean_category(body.name)
+    with closing(db()) as c:
+        c.execute("UPDATE products SET category=? WHERE category=?", (name, old))
+        c.execute("DELETE FROM categories WHERE name=?", (old,))
+        c.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (name,))
+        c.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/categories/{name}")
+def api_delete_category(name: str):
+    """Removes the category; its products become uncategorized."""
+    with closing(db()) as c:
+        c.execute("UPDATE products SET category=NULL WHERE category=?", (name,))
+        c.execute("DELETE FROM categories WHERE name=?", (name,))
         c.commit()
     return {"ok": True}
 
