@@ -1,0 +1,33 @@
+name: home-inventory
+services:
+  inventory:
+    image: ghcr.io/stvnmn/home-inventory:latest
+    pull_policy: always
+    container_name: home_inventory
+    restart: unless-stopped
+    ports:
+      - "3081:8000"
+    volumes:
+      - /DATA/AppData/home_inventory/data:/data
+    environment:
+      DB_PATH: /data/inventory.db
+      TZ: Etc/UTC
+      RESTOCK_LEAD_DAYS: 14
+      EXPIRY_WARN_DAYS: 30
+    x-casaos:
+      ports:
+        - container: "8000"
+          description:
+            en_us: Web UI
+x-casaos:
+  author: Home Inventory contributors
+  category: Utilities
+  description:
+    en_us: Self-hosted household inventory tracker with barcode scanning, run-out predictions, and Pushover alerts
+  icon: https://cdn-icons-png.flaticon.com/512/3500/3500833.png
+  index: /
+  port_map: "3081"
+  scheme: http
+  store_app_id: home_inventory
+  title:
+    en_us: Home Inventory

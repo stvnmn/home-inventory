@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Inventory</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --brand:#2563eb; --bad:#dc2626; --warn:#d97706; --ok:#059669; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
+  nav { position: sticky; top: 0; z-index: 10; background: #111827; display: flex; gap: 4px; padding: 6px; overflow-x: auto; }
+  nav .brand { color: #fff; font-weight: 700; padding: 8px 10px; white-space: nowrap; }
+  nav button { background: transparent; color: #d1d5db; border: 0; padding: 8px 12px; border-radius: 8px; font-size: .95rem; white-space: nowrap; cursor: pointer; }
+  nav button.active { background: var(--brand); color: #fff; }
+  nav .badge { background: var(--bad); color: #fff; border-radius: 10px; padding: 0 6px; font-size: .75rem; margin-left: 4px; }
+  main { max-width: 720px; margin: auto; padding: 12px; }
+  .view { display: none; } .view.active { display: block; }
+  .card { background: var(--card); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 3px #0002; }
+  button.b { padding: 8px 12px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-size: .95rem; cursor: pointer; }
+  button.alt { background: #6b7280; } button.danger { background: var(--bad); } button.ok { background: var(--ok); }
+  button.sm { padding: 5px 9px; font-size: .85rem; }
+  input, select { padding: 9px; font-size: 1rem; width: 100%; margin: 4px 0; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: .75rem; font-weight: 600; color: #fff; margin-right: 4px; }
+  .tag.bad { background: var(--bad); } .tag.warn { background: var(--warn); } .tag.ok { background: var(--ok); } .tag.gray { background: #9ca3af; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0 10px; }
+  .chip { background: #e5e7eb; border: 0; border-radius: 16px; padding: 6px 12px; font-size: .85rem; white-space: nowrap; cursor: pointer; }
+  .chip.active { background: var(--brand); color: #fff; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .stat { background: var(--card); border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 1px 3px #0002; }
+  .stat b { font-size: 1.4rem; display: block; }
+  #reader { width: 100%; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; z-index: 20; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">🏠 Inventory</span>
+  <button data-view="items" class="active">Items</button>
+  <button data-view="add">+ Add / Scan</button>
+  <button data-view="alerts">Alerts<span id="alertBadge" class="badge" style="display:none"></span></button>
+  <button data-view="history">History</button>
+  <button data-view="settings">Settings</button>
+</nav>
+
+<main>
+  <section id="items" class="view active">
+    <div class="stats">
+      <div class="stat"><b id="sItems">0</b><span class="muted">Products</span></div>
+      <div class="stat"><b id="sRestock">0</b><span class="muted">Restock</span></div>
+      <div class="stat"><b id="sExpiring">0</b><span class="muted">Expiring</span></div>
+    </div>
+    <input id="search" type="search" placeholder="Search items or category…">
+    <div class="chips" id="chips">
+      <button class="chip active" data-f="all">All</button>
+      <button class="chip" data-f="instock">In stock</button>
+      <button class="chip" data-f="restock">Restock</button>
+      <button class="chip" data-f="expiring">Expiring</button>
+      <button class="chip" data-f="out">Out of stock</button>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <section id="add" class="view">
+    <div class="card">
+      <div class="row"><strong>Scan or enter item</strong><button class="b" id="scanBtn">📷 Scan barcode</button></div>
+      <div id="reader"></div>
+      <input id="barcode" placeholder="Barcode (optional)" inputmode="numeric">
+      <button class="b alt" id="lookupBtn">Look up / continue without barcode</button>
+      <div id="addForm" style="display:none">
+        <input id="name" placeholder="Item name">
+        <input id="category" placeholder="Category (e.g. Bathroom, Pantry)" list="cats">
+        <datalist id="cats"></datalist>
+        <input id="qty" type="number" min="1" max="100" value="1">
+        <label class="muted">Expiration date (optional)</label>
+        <input id="exp" type="date">
+        <div class="actions">
+          <button class="b" id="saveBtn">Log in</button>
+          <button class="b alt" id="finishBtn">Log one used up</button>
+          <button class="b alt" id="cancelBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="alerts" class="view">
+    <div id="alertList"></div>
+  </section>
+
+  <section id="history" class="view">
+    <div id="historyList"></div>
+  </section>
+
+  <section id="settings" class="view">
+    <div class="card">
+      <strong>Pushover notifications</strong>
+      <p class="muted" id="cfg"></p>
+      <label class="muted">User key</label>
+      <input id="poUser" autocomplete="off" placeholder="Pushover user key">
+      <label class="muted">App/API token</label>
+      <input id="poToken" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved token">
+      <div class="actions">
+        <button class="b" id="savePush">Save</button>
+        <button class="b alt" id="testPush">Send test notification</button>
+        <button class="b alt" id="checkBtn">Run alert check now</button>
+      </div>
+    </div>
+    <div class="card">
+      <strong>Alert timing</strong>
+      <label class="muted">Restock reminder: days before predicted run-out</label>
+      <input id="leadDays" type="number" min="1" max="365">
+      <label class="muted">Expiry warning: days before expiration</label>
+      <input id="warnDays" type="number" min="1" max="365">
+      <div class="actions"><button class="b" id="saveTiming">Save</button></div>
+    </div>
+    <div class="card">
+      <strong>Account</strong>
+      <p class="muted" id="whoami"></p>
+      <input id="curPw" type="password" placeholder="Current password" autocomplete="current-password">
+      <input id="newPw" type="password" placeholder="New password (min 8 characters)" autocomplete="new-password">
+      <div class="actions">
+        <button class="b" id="changePw">Change password</button>
+        <button class="b alt" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let items = [], cfg = {expiry_warn_days: 30}, filter = 'all', currentProductId = null;
+
+async function api(url, method, body) {
+  const opts = {method: method || 'GET'};
+  if (body !== undefined) { opts.headers = {'Content-Type': 'application/json'}; opts.body = JSON.stringify(body); }
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    if (r.status === 401) { location.href = '/login'; return new Promise(() => {}); }
+    let d; try { d = (await r.json()).detail; } catch (e) {} throw new Error(d || r.statusText);
+  }
+  return r.json();
+}
+let toastTimer;
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toastTimer); toastTimer = setTimeout(() => el.style.display = 'none', 2500); }
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } };
+
+function show(view) {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === view));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  if (view === 'history') loadHistory().catch(e => toast(e.message));
+  if (view !== 'add') stopScan();
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.view));
+
+const daysUntil = d => Math.round((new Date(d + 'T00:00:00') - new Date(new Date().toDateString())) / 864e5);
+const isExpiring = p => p.next_expiry && daysUntil(p.next_expiry) <= cfg.expiry_warn_days;
+
+function tags(p) {
+  let t = '';
+  if (p.in_stock === 0) t += '<span class="tag gray">Out</span>';
+  if (p.needs_restock) t += '<span class="tag bad">Restock</span>';
+  if (p.next_expiry) {
+    const d = daysUntil(p.next_expiry);
+    if (d < 0) t += '<span class="tag bad">Expired</span>';
+    else if (d <= cfg.expiry_warn_days) t += `<span class="tag warn">Expires in ${d}d</span>`;
+  }
+  return t;
+}
+
+function card(p) {
+  return `<div class="card">
+    <div class="row"><strong>${esc(p.name)}</strong><span><b>${p.in_stock}</b> in stock</span></div>
+    <div class="muted">${p.category ? esc(p.category) + ' · ' : ''}${p.barcode ? esc(p.barcode) : 'no barcode'}</div>
+    <div style="margin:6px 0">${tags(p)}</div>
+    <div class="muted">
+      ${p.avg_days_per_unit ? `Lasts ~${p.avg_days_per_unit} days each (${p.units_finished} finished)` : 'Not enough usage data yet'}
+      ${p.predicted_runout ? `<br>Runs out ~${p.predicted_runout} · restock from ${p.restock_on}` : ''}
+      ${p.next_expiry ? `<br>Next expiry ${p.next_expiry}` : ''}
+    </div>
+    <div class="actions">
+      <button class="b sm ok" onclick="quickAdd(${p.id})">+1 stock</button>
+      ${p.in_stock ? `<button class="b sm alt" onclick="finish(${p.id})">Used up one</button>` : ''}
+      <button class="b sm alt" onclick="editItem(${p.id})">Edit</button>
+      <button class="b sm danger" onclick="delItem(${p.id})">Delete</button>
+    </div>
+  </div>`;
+}
+
+function renderItems() {
+  const q = $('search').value.trim().toLowerCase();
+  const f = {
+    all: () => true, instock: p => p.in_stock > 0, restock: p => p.needs_restock,
+    expiring: isExpiring, out: p => p.in_stock === 0,
+  }[filter];
+  const rows = items.filter(f).filter(p => !q || (p.name + ' ' + (p.category || '')).toLowerCase().includes(q));
+  $('list').innerHTML = rows.map(card).join('') || '<p class="muted">Nothing here.</p>';
+}
+
+function renderAlerts() {
+  const restock = items.filter(p => p.needs_restock);
+  const expiring = items.filter(isExpiring).sort((a, b) => a.next_expiry.localeCompare(b.next_expiry));
+  const section = (title, rows) => rows.length ? `<h3>${title}</h3>${rows.map(card).join('')}` : '';
+  $('alertList').innerHTML = section('Needs restock', restock) + section(`Expiring within ${cfg.expiry_warn_days} days`, expiring)
+    || '<p class="muted">All good — nothing needs attention.</p>';
+  const n = new Set([...restock, ...expiring].map(p => p.id)).size;
+  $('alertBadge').textContent = n; $('alertBadge').style.display = n ? 'inline' : 'none';
+  $('sItems').textContent = items.length; $('sRestock').textContent = restock.length; $('sExpiring').textContent = expiring.length;
+}
+
+async function load() {
+  [items, cfg] = await Promise.all([api('/api/products'), api('/api/config')]);
+  $('cats').innerHTML = [...new Set(items.map(p => p.category).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join('');
+  $('cfg').textContent = `Status: ${cfg.pushover_configured ? 'configured' : 'not configured (alerts print to the server log)'}. Get your user key from pushover.net and create an application there for the token.`;
+  $('poUser').value = cfg.pushover_user || '';
+  $('leadDays').value = cfg.restock_lead_days; $('warnDays').value = cfg.expiry_warn_days;
+  $('whoami').textContent = `Signed in as ${cfg.username}`;
+  renderItems(); renderAlerts();
+}
+
+$('search').oninput = renderItems;
+$('chips').onclick = e => {
+  if (!e.target.dataset.f) return;
+  filter = e.target.dataset.f;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === e.target));
+  renderItems();
+};
+
+const finish = guard(async id => { await api('/api/finish', 'POST', {product_id: id}); toast('Logged used up'); await load(); });
+window.finish = finish;
+window.quickAdd = guard(async id => {
+  const exp = prompt('Expiration date (YYYY-MM-DD, blank for none)?', '');
+  if (exp === null) return;
+  const qty = parseInt(prompt('Quantity?', '1'), 10);
+  if (!qty) return;
+  await api('/api/stock', 'POST', {product_id: id, quantity: qty, expires_on: exp.trim() || null});
+  toast('Stocked'); await load();
+});
+window.editItem = guard(async id => {
+  const p = items.find(x => x.id === id);
+  const name = prompt('Name', p.name); if (name === null) return;
+  const category = prompt('Category', p.category || ''); if (category === null) return;
+  await api('/api/products/' + id, 'PATCH', {name, category}); toast('Saved'); await load();
+});
+window.delItem = guard(async id => {
+  const p = items.find(x => x.id === id);
+  if (!confirm(`Delete "${p.name}" and all its history?`)) return;
+  await api('/api/products/' + id, 'DELETE'); toast('Deleted'); await load();
+});
+
+async function loadHistory() {
+  const rows = await api('/api/history');
+  const events = [];
+  rows.forEach(u => {
+    events.push({date: u.added_on, id: u.id, text: `Added ${esc(u.name)}${u.expires_on ? ` (exp ${u.expires_on})` : ''}`, undo: 'del', kind: 'ok'});
+    if (u.finished_on) events.push({date: u.finished_on, id: u.id, text: `Used up ${esc(u.name)}`, undo: 'unfinish', kind: 'gray'});
+  });
+  events.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  $('historyList').innerHTML = events.map(e => `<div class="card row">
+    <span><span class="tag ${e.kind}">${e.date}</span>${e.text}</span>
+    <button class="b sm alt" onclick="undo('${e.undo}', ${e.id})">Undo</button></div>`).join('') || '<p class="muted">No activity yet.</p>';
+}
+window.undo = guard(async (kind, id) => {
+  if (kind === 'del') { if (!confirm('Remove this unit from stock?')) return; await api('/api/units/' + id, 'DELETE'); }
+  else await api(`/api/units/${id}/unfinish`, 'POST');
+  await loadHistory(); await load();
+});
+
+$('checkBtn').onclick = guard(async () => { const r = await api('/api/check', 'POST'); toast(`Check done, ${r.notifications_sent} notification(s) sent`); });
+$('savePush').onclick = guard(async () => {
+  await api('/api/settings', 'PUT', {pushover_user: $('poUser').value, pushover_token: $('poToken').value});
+  $('poToken').value = ''; toast('Pushover settings saved'); await load();
+});
+$('testPush').onclick = guard(async () => { const r = await api('/api/settings/test-push', 'POST'); toast(r.ok ? 'Test sent - check your phone' : 'Failed: ' + r.message); });
+$('saveTiming').onclick = guard(async () => {
+  await api('/api/settings', 'PUT', {restock_lead_days: +$('leadDays').value, expiry_warn_days: +$('warnDays').value});
+  toast('Saved'); await load();
+});
+$('changePw').onclick = guard(async () => {
+  await api('/api/auth/password', 'POST', {current_password: $('curPw').value, new_password: $('newPw').value});
+  $('curPw').value = $('newPw').value = ''; toast('Password changed');
+});
+$('logoutBtn').onclick = async () => { await fetch('/api/auth/logout', {method: 'POST'}); location.href = '/login'; };
+
+// Add / scan
+async function lookup() {
+  const code = $('barcode').value.trim();
+  currentProductId = null;
+  $('addForm').style.display = 'block';
+  $('name').disabled = false;
+  if (!code) { $('name').value = ''; return; }
+  const r = await api('/api/barcode/' + encodeURIComponent(code));
+  if (r.known) {
+    currentProductId = r.product.id;
+    $('name').value = r.product.name; $('name').disabled = true;
+    $('category').value = r.product.category || '';
+    toast('Known item');
+  } else {
+    $('name').value = r.suggested_name || '';
+    toast(r.suggested_name ? 'Found online — confirm the name' : 'Unknown barcode — enter a name');
+  }
+}
+async function ensureProduct() {
+  if (currentProductId) return currentProductId;
+  const name = $('name').value.trim();
+  if (!name) throw new Error('Enter a name');
+  const existing = items.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  return (await api('/api/products', 'POST', {name, barcode: $('barcode').value.trim() || null, category: $('category').value.trim() || null})).id;
+}
+function resetForm() {
+  ['barcode', 'name', 'category', 'exp'].forEach(i => $(i).value = '');
+  $('qty').value = 1; $('name').disabled = false; currentProductId = null; $('addForm').style.display = 'none';
+}
+$('lookupBtn').onclick = guard(lookup);
+$('barcode').onkeydown = e => { if (e.key === 'Enter') guard(lookup)(); };
+$('cancelBtn').onclick = resetForm;
+$('saveBtn').onclick = guard(async () => {
+  const id = await ensureProduct();
+  await api('/api/stock', 'POST', {product_id: id, quantity: +$('qty').value || 1, expires_on: $('exp').value || null});
+  toast('Logged in'); resetForm(); await load(); show('items');
+});
+$('finishBtn').onclick = guard(async () => { await finish(await ensureProduct()); resetForm(); });
+
+let scanner = null;
+async function stopScan() { if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; $('reader').innerHTML = ''; } }
+$('scanBtn').onclick = async () => {
+  if (scanner) return stopScan();
+  scanner = new Html5Qrcode('reader');
+  try {
+    await scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 250, height: 150}}, async text => {
+      $('barcode').value = text;
+      await stopScan();
+      guard(lookup)();
+    });
+  } catch (e) { toast('Camera unavailable (needs HTTPS or localhost)'); scanner = null; }
+};
+
+load().catch(e => toast(e.message));
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+services:
+  inventory:
+    build: .
+    container_name: home_inventory
+    restart: unless-stopped
+    ports:
+      - "3081:8000"
+    volumes:
+      - /DATA/AppData/home_inventory/data:/data
+    environment:
+      DB_PATH: /data/inventory.db
+      TZ: Etc/UTC
+      PUSHOVER_APP_TOKEN: ${PUSHOVER_APP_TOKEN:-}
+      PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY:-}
+      RESTOCK_LEAD_DAYS: 14
+      EXPIRY_WARN_DAYS: 30

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Inventory - Sign in</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f3f4f6; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; }
+  form { background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 1px 4px #0003; width: min(92vw, 340px); }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  p { color: #6b7280; font-size: .9rem; margin: 0 0 12px; }
+  input { width: 100%; padding: 10px; font-size: 1rem; margin: 5px 0; border: 1px solid #d1d5db; border-radius: 8px; box-sizing: border-box; }
+  button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 1rem; margin-top: 8px; cursor: pointer; }
+  a { display: block; text-align: center; margin-top: 12px; color: #2563eb; font-size: .9rem; }
+  #err { color: #dc2626; font-size: .9rem; min-height: 1.2em; margin-top: 6px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>🏠 Home Inventory</h1>
+  <p id="sub">Sign in</p>
+  <input id="u" placeholder="Username" autocomplete="username" required>
+  <input id="p" type="password" placeholder="Password" autocomplete="current-password" required>
+  <input id="p2" type="password" placeholder="Confirm password" autocomplete="new-password" style="display:none">
+  <button id="btn">Sign in</button>
+  <a id="toggle" href="#">Create a new account</a>
+  <div id="err"></div>
+</form>
+<script>
+const $ = id => document.getElementById(id);
+let signup = false;
+function mode(on) {
+  signup = on;
+  $('sub').textContent = on ? 'Create an account (password min 8 characters)' : 'Sign in';
+  $('btn').textContent = on ? 'Create account' : 'Sign in';
+  $('toggle').textContent = on ? 'Already have an account? Sign in' : 'Create a new account';
+  $('p2').style.display = on ? 'block' : 'none'; $('p2').required = on; $('p2').value = '';
+  $('p').autocomplete = on ? 'new-password' : 'current-password';
+  $('err').textContent = '';
+}
+$('toggle').onclick = e => { e.preventDefault(); mode(!signup); };
+fetch('/api/auth/status').then(r => r.json()).then(s => {
+  if (s.logged_in) location.href = '/';
+  else if (s.setup_needed) mode(true);
+});
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  $('err').textContent = '';
+  if (signup && $('p').value !== $('p2').value) { $('err').textContent = 'Passwords do not match'; return; }
+  const r = await fetch(signup ? '/api/auth/signup' : '/api/auth/login', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: $('u').value, password: $('p').value}),
+  });
+  if (r.ok) location.href = '/';
+  else $('err').textContent = (await r.json()).detail || 'Failed';
+};
+</script>
+</body>
+</html>
