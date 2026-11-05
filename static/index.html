@@ -43,6 +43,8 @@
   button.sm { padding: 5px 9px; font-size: .85rem; }
   input, select { padding: 9px; font-size: 1rem; width: 100%; margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--ink); }
   .filters { display: flex; gap: 8px; flex-wrap: wrap; } .filters > * { flex: 1 1 180px; }
+  dialog { width: min(92vw, 400px); border: 0; border-radius: 12px; padding: 16px; background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: #0008; }
   .catrow { display: flex; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
   .catrow span { flex: 1; word-break: break-word; }
   .muted { color: var(--muted); font-size: .85rem; }
@@ -168,6 +170,16 @@
     </div>
   </section>
 </main>
+<dialog id="editDlg">
+  <form id="editForm" method="dialog">
+    <strong>Edit item</strong>
+    <label class="muted">Name</label>
+    <input id="editName" required>
+    <label class="muted">Category (pick one or type a new one; blank removes it)</label>
+    <input id="editCat" list="cats" maxlength="40">
+    <div class="actions"><button class="b" type="submit">Save</button><button class="b alt" type="button" id="editCancel">Cancel</button></div>
+  </form>
+</dialog>
 <div id="toast"></div>
 
 <script>
@@ -328,11 +340,19 @@ window.quickAdd = guard(async id => {
   await api('/api/stock', 'POST', {product_id: id, quantity: qty, expires_on: exp.trim() || null});
   toast('Stocked'); await load();
 });
-window.editItem = guard(async id => {
+let editingId = null;
+window.editItem = id => {
   const p = items.find(x => x.id === id);
-  const name = prompt('Name', p.name); if (name === null) return;
-  const category = prompt('Category', p.category || ''); if (category === null) return;
-  await api('/api/products/' + id, 'PATCH', {name, category}); toast('Saved'); await load();
+  editingId = id;
+  $('editName').value = p.name;
+  $('editCat').value = p.category || '';
+  $('editDlg').showModal();
+};
+$('editCancel').onclick = () => $('editDlg').close();
+$('editForm').onsubmit = guard(async e => {
+  e.preventDefault();
+  await api('/api/products/' + editingId, 'PATCH', {name: $('editName').value, category: $('editCat').value});
+  $('editDlg').close(); toast('Saved'); await load();
 });
 window.delItem = guard(async id => {
   const p = items.find(x => x.id === id);
