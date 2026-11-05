@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home Inventory</title>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/static/html5-qrcode.min.js"></script>
 <style>
   :root { --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --brand:#2563eb; --bad:#dc2626; --warn:#d97706; --ok:#059669; }
   * { box-sizing: border-box; }
@@ -330,14 +330,34 @@ let scanner = null;
 async function stopScan() { if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; $('reader').innerHTML = ''; } }
 $('scanBtn').onclick = async () => {
   if (scanner) return stopScan();
-  scanner = new Html5Qrcode('reader');
+  if (typeof Html5Qrcode === 'undefined') { toast('Scanner library failed to load'); return; }
+  if (!window.isSecureContext) { toast('Camera needs HTTPS or localhost - type the barcode instead'); return; }
+  const F = Html5QrcodeSupportedFormats;
+  scanner = new Html5Qrcode('reader', {
+    formatsToSupport: [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.CODE_128, F.CODE_39],
+    useBarCodeDetectorIfSupported: true,
+    verbose: false,
+  });
+  const config = {
+    fps: 15,
+    // Wide box suits 1D barcodes; sized relative to the video so it works on any screen.
+    qrbox: (w, h) => ({width: Math.floor(w * 0.9), height: Math.floor(Math.min(h * 0.5, w * 0.5))}),
+    videoConstraints: {facingMode: 'environment', width: {ideal: 1920}, height: {ideal: 1080}, focusMode: 'continuous'},
+  };
   try {
-    await scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 250, height: 150}}, async text => {
+    await scanner.start({facingMode: 'environment'}, config, async text => {
       $('barcode').value = text;
       await stopScan();
       guard(lookup)();
     });
-  } catch (e) { toast('Camera unavailable (needs HTTPS or localhost)'); scanner = null; }
+    toast('Hold the barcode inside the box, 6-10 inches away');
+  } catch (e) {
+    const msg = String(e && e.name || e);
+    toast(/NotAllowed|Permission/i.test(msg) ? 'Camera permission denied - allow it in browser settings'
+        : /NotFound|Overconstrained/i.test(msg) ? 'No camera found'
+        : 'Camera error: ' + msg);
+    scanner = null; $('reader').innerHTML = '';
+  }
 };
 
 load().catch(e => toast(e.message));
