@@ -102,4 +102,4 @@ Do not commit the backup file. If you changed the host data path in Compose, use
 
 ## Tech stack
 
-Python 3.12 · FastAPI · SQLite · Uvicorn · vanilla JS · Docker
+Python 3.15 · FastAPI · SQLite · Uvicorn · vanilla JS · Docker
