@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home Inventory</title>
-<script src="/static/html5-qrcode.min.js"></script>
+<script src="/static/barcode-detector.js"></script>
 <style>
   :root { --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --brand:#2563eb; --bad:#dc2626; --warn:#d97706; --ok:#059669; }
   * { box-sizing: border-box; }
@@ -32,7 +32,9 @@
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
   .stat { background: var(--card); border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 1px 3px #0002; }
   .stat b { font-size: 1.4rem; display: block; }
-  #reader { width: 100%; }
+  #reader { width: 100%; position: relative; display: none; margin: 8px 0; }
+  #reader video { width: 100%; border-radius: 8px; background: #000; display: block; }
+  #reader .guide { position: absolute; left: 6%; right: 6%; top: 30%; bottom: 30%; border: 2px solid #22c55e; border-radius: 8px; pointer-events: none; }
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; z-index: 20; }
 </style>
 </head>
@@ -67,7 +69,7 @@
   <section id="add" class="view">
     <div class="card">
       <div class="row"><strong>Scan or enter item</strong><button class="b" id="scanBtn">📷 Scan barcode</button></div>
-      <div id="reader"></div>
+      <div id="reader"><video id="video" playsinline muted autoplay></video><div class="guide"></div></div>
       <input id="barcode" placeholder="Barcode (optional)" inputmode="numeric">
       <button class="b alt" id="lookupBtn">Look up / continue without barcode</button>
       <div id="addForm" style="display:none">
@@ -326,37 +328,65 @@ $('saveBtn').onclick = guard(async () => {
 });
 $('finishBtn').onclick = guard(async () => { await finish(await ensureProduct()); resetForm(); });
 
-let scanner = null;
-async function stopScan() { if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; $('reader').innerHTML = ''; } }
+// Scanning uses a WebAssembly (zxing-cpp) barcode detector bundled in /static, so it works
+// on iPhone Safari, which has no native BarcodeDetector.
+let scan = null;
+function stopScan() {
+  if (!scan) return;
+  scan.stopped = true;
+  clearTimeout(scan.timer);
+  scan.stream.getTracks().forEach(t => t.stop());
+  $('video').srcObject = null;
+  $('reader').style.display = 'none';
+  $('scanBtn').textContent = '📷 Scan barcode';
+  scan = null;
+}
+// A UPC-A code can come back as EAN-13 with a leading 0; store it the way UPC-A is usually written.
+const normalizeCode = c => (c.length === 13 && c[0] === '0') ? c.slice(1) : c;
+
 $('scanBtn').onclick = async () => {
-  if (scanner) return stopScan();
-  if (typeof Html5Qrcode === 'undefined') { toast('Scanner library failed to load'); return; }
-  if (!window.isSecureContext) { toast('Camera needs HTTPS or localhost - type the barcode instead'); return; }
-  const F = Html5QrcodeSupportedFormats;
-  scanner = new Html5Qrcode('reader', {
-    formatsToSupport: [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.CODE_128, F.CODE_39],
-    useBarCodeDetectorIfSupported: true,
-    verbose: false,
-  });
-  const config = {
-    fps: 15,
-    // Wide box suits 1D barcodes; sized relative to the video so it works on any screen.
-    qrbox: (w, h) => ({width: Math.floor(w * 0.9), height: Math.floor(Math.min(h * 0.5, w * 0.5))}),
-    videoConstraints: {facingMode: 'environment', width: {ideal: 1920}, height: {ideal: 1080}, focusMode: 'continuous'},
-  };
+  if (scan) return stopScan();
+  if (typeof BarcodeDetectionAPI === 'undefined') { toast('Scanner library failed to load'); return; }
+  if (!navigator.mediaDevices || !window.isSecureContext) { toast('Camera needs HTTPS or localhost - type the barcode instead'); return; }
   try {
-    await scanner.start({facingMode: 'environment'}, config, async text => {
-      $('barcode').value = text;
-      await stopScan();
-      guard(lookup)();
+    BarcodeDetectionAPI.setZXingModuleOverrides({locateFile: (f, prefix) => f.endsWith('.wasm') ? '/static/zxing_reader.wasm' : prefix + f});
+    const detector = new BarcodeDetectionAPI.BarcodeDetector({formats: ['upc_a', 'upc_e', 'ean_13', 'ean_8', 'code_128', 'code_39']});
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false,
     });
-    toast('Hold the barcode inside the box, 6-10 inches away');
+    const track = stream.getVideoTracks()[0];
+    try { await track.applyConstraints({advanced: [{focusMode: 'continuous'}]}); } catch (e) {}
+    const video = $('video');
+    video.srcObject = stream;
+    $('reader').style.display = 'block';
+    await video.play();
+    scan = {stream, stopped: false, timer: null};
+    $('scanBtn').textContent = 'Stop camera';
+    toast('Hold the barcode flat in the green box, 6-10 inches away');
+    const s = scan;
+    const tick = async () => {
+      if (s.stopped) return;
+      try {
+        if (video.readyState >= 2) {
+          const found = await detector.detect(video);
+          if (found.length && !s.stopped) {
+            $('barcode').value = normalizeCode(found[0].rawValue.trim());
+            stopScan();
+            if (navigator.vibrate) navigator.vibrate(80);
+            guard(lookup)();
+            return;
+          }
+        }
+      } catch (e) { console.error('scan error', e); }
+      s.timer = setTimeout(tick, 120);
+    };
+    tick();
   } catch (e) {
     const msg = String(e && e.name || e);
+    stopScan();
     toast(/NotAllowed|Permission/i.test(msg) ? 'Camera permission denied - allow it in browser settings'
         : /NotFound|Overconstrained/i.test(msg) ? 'No camera found'
-        : 'Camera error: ' + msg);
-    scanner = null; $('reader').innerHTML = '';
+        : 'Scanner error: ' + (e && e.message || msg));
   }
 };
 

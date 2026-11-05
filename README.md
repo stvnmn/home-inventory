@@ -56,7 +56,7 @@ Pushover keys and alert timing are set on the app's **Settings** page and saved 
 
 ## Camera scanning needs HTTPS
 
-Browsers only allow camera access on HTTPS (or `localhost`). The scanner library ([html5-qrcode](https://github.com/mebjas/html5-qrcode) 2.3.8, Apache-2.0) is bundled in `static/`, so scanning works offline. Put the app behind a local Nginx Proxy Manager host: forward to the Docker host's IP on port `3081` (scheme `http`), attach your local SSL certificate, and open the `https://` name on your phone. Typing a barcode works without HTTPS.
+Browsers only allow camera access on HTTPS (or `localhost`). Scanning uses [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 and [zxing-wasm](https://github.com/Sec-ant/zxing-wasm) 3.1.6 (MIT, zxing-cpp compiled to WebAssembly), bundled in `static/`, so it works offline and on iPhone Safari. Put the app behind a local Nginx Proxy Manager host: forward to the Docker host's IP on port `3081` (scheme `http`), attach your local SSL certificate, and open the `https://` name on your phone. Typing a barcode works without HTTPS.
 
 ## How it works
 
