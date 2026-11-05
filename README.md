@@ -61,8 +61,9 @@ Browsers only allow camera access on HTTPS (or `localhost`). Scanning uses [barc
 ## How it works
 
 - **Log in:** scan or type a barcode, add a quantity and optional expiry date.
-- **Log used up:** marks one unit finished, soonest-expiring first.
-- **Prediction:** the average days each unit lasted (from when it was added or when the previous one ran out, whichever is later) times the units in stock. The restock alert fires `RESTOCK_LEAD_DAYS` before the predicted run-out, or when stock hits 0 after past usage. A prediction needs at least one finished unit.
+- **Start using:** marks one sealed unit as in use (soonest-expiring first). Items show an **In use** tag and a filter chip.
+- **Log used up:** marks one unit finished, the one in use first, otherwise soonest-expiring.
+- **Prediction:** the average days each unit lasted (from when you started using it, or if that wasn't logged, from when it was added or the previous one ran out, whichever is later) times the units in stock. The restock alert fires `RESTOCK_LEAD_DAYS` before the predicted run-out, or when stock hits 0 after past usage. A prediction needs at least one finished unit.
 - **Alerts:** checked hourly, each alert is sent once. Use **Settings → Run alert check now** to trigger a check manually.
 
 ## ZimaOS / CasaOS

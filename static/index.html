@@ -25,7 +25,7 @@
   .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
   .tag { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: .75rem; font-weight: 600; color: #fff; margin-right: 4px; }
-  .tag.bad { background: var(--bad); } .tag.warn { background: var(--warn); } .tag.ok { background: var(--ok); } .tag.gray { background: #9ca3af; }
+  .tag.bad { background: var(--bad); } .tag.warn { background: var(--warn); } .tag.ok { background: var(--ok); } .tag.gray { background: #9ca3af; } .tag.blue { background: var(--brand); }
   .chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0 10px; }
   .chip { background: #e5e7eb; border: 0; border-radius: 16px; padding: 6px 12px; font-size: .85rem; white-space: nowrap; cursor: pointer; }
   .chip.active { background: var(--brand); color: #fff; }
@@ -59,6 +59,7 @@
     <div class="chips" id="chips">
       <button class="chip active" data-f="all">All</button>
       <button class="chip" data-f="instock">In stock</button>
+      <button class="chip" data-f="inuse">In use</button>
       <button class="chip" data-f="restock">Restock</button>
       <button class="chip" data-f="expiring">Expiring</button>
       <button class="chip" data-f="out">Out of stock</button>
@@ -81,6 +82,7 @@
         <input id="exp" type="date">
         <div class="actions">
           <button class="b" id="saveBtn">Log in</button>
+          <button class="b alt" id="useBtn">Start using one</button>
           <button class="b alt" id="finishBtn">Log one used up</button>
           <button class="b alt" id="cancelBtn">Cancel</button>
         </div>
@@ -165,6 +167,7 @@ const isExpiring = p => p.next_expiry && daysUntil(p.next_expiry) <= cfg.expiry_
 function tags(p) {
   let t = '';
   if (p.in_stock === 0) t += '<span class="tag gray">Out</span>';
+  if (p.in_use) t += '<span class="tag blue">In use</span>';
   if (p.needs_restock) t += '<span class="tag bad">Restock</span>';
   if (p.next_expiry) {
     const d = daysUntil(p.next_expiry);
@@ -176,17 +179,19 @@ function tags(p) {
 
 function card(p) {
   return `<div class="card">
-    <div class="row"><strong>${esc(p.name)}</strong><span><b>${p.in_stock}</b> in stock</span></div>
+    <div class="row"><strong>${esc(p.name)}</strong><span><b>${p.in_stock}</b> in stock${p.in_use ? ` (${p.in_use} in use)` : ''}</span></div>
     <div class="muted">${p.category ? esc(p.category) + ' · ' : ''}${p.barcode ? esc(p.barcode) : 'no barcode'}</div>
     <div style="margin:6px 0">${tags(p)}</div>
     <div class="muted">
+      ${p.in_use_since ? `In use since ${p.in_use_since} (${-daysUntil(p.in_use_since)}d)<br>` : ''}
       ${p.avg_days_per_unit ? `Lasts ~${p.avg_days_per_unit} days each (${p.units_finished} finished)` : 'Not enough usage data yet'}
       ${p.predicted_runout ? `<br>Runs out ~${p.predicted_runout} · restock from ${p.restock_on}` : ''}
       ${p.next_expiry ? `<br>Next expiry ${p.next_expiry}` : ''}
     </div>
     <div class="actions">
       <button class="b sm ok" onclick="quickAdd(${p.id})">+1 stock</button>
-      ${p.in_stock ? `<button class="b sm alt" onclick="finish(${p.id})">Used up one</button>` : ''}
+      ${p.in_stock > p.in_use ? `<button class="b sm" onclick="startUse(${p.id})">Start using</button>` : ''}
+      ${p.in_stock ? `<button class="b sm alt" onclick="finish(${p.id})">Used up</button>` : ''}
       <button class="b sm alt" onclick="editItem(${p.id})">Edit</button>
       <button class="b sm danger" onclick="delItem(${p.id})">Delete</button>
     </div>
@@ -196,7 +201,7 @@ function card(p) {
 function renderItems() {
   const q = $('search').value.trim().toLowerCase();
   const f = {
-    all: () => true, instock: p => p.in_stock > 0, restock: p => p.needs_restock,
+    all: () => true, instock: p => p.in_stock > 0, inuse: p => p.in_use > 0, restock: p => p.needs_restock,
     expiring: isExpiring, out: p => p.in_stock === 0,
   }[filter];
   const rows = items.filter(f).filter(p => !q || (p.name + ' ' + (p.category || '')).toLowerCase().includes(q));
@@ -234,6 +239,8 @@ $('chips').onclick = e => {
 
 const finish = guard(async id => { await api('/api/finish', 'POST', {product_id: id}); toast('Logged used up'); await load(); });
 window.finish = finish;
+const startUse = guard(async id => { await api('/api/open', 'POST', {product_id: id}); toast('Marked in use'); await load(); });
+window.startUse = startUse;
 window.quickAdd = guard(async id => {
   const exp = prompt('Expiration date (YYYY-MM-DD, blank for none)?', '');
   if (exp === null) return;
@@ -259,6 +266,7 @@ async function loadHistory() {
   const events = [];
   rows.forEach(u => {
     events.push({date: u.added_on, id: u.id, text: `Added ${esc(u.name)}${u.expires_on ? ` (exp ${u.expires_on})` : ''}`, undo: 'del', kind: 'ok'});
+    if (u.opened_on) events.push({date: u.opened_on, id: u.id, text: `Started using ${esc(u.name)}`, undo: 'unopen', kind: 'blue'});
     if (u.finished_on) events.push({date: u.finished_on, id: u.id, text: `Used up ${esc(u.name)}`, undo: 'unfinish', kind: 'gray'});
   });
   events.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
@@ -267,7 +275,8 @@ async function loadHistory() {
     <button class="b sm alt" onclick="undo('${e.undo}', ${e.id})">Undo</button></div>`).join('') || '<p class="muted">No activity yet.</p>';
 }
 window.undo = guard(async (kind, id) => {
-  if (kind === 'del') { if (!confirm('Remove this unit from stock?')) return; await api('/api/units/' + id, 'DELETE'); }
+  if (kind === 'unopen') await api(`/api/units/${id}/unopen`, 'POST');
+  else if (kind === 'del') { if (!confirm('Remove this unit from stock?')) return; await api('/api/units/' + id, 'DELETE'); }
   else await api(`/api/units/${id}/unfinish`, 'POST');
   await loadHistory(); await load();
 });
@@ -326,6 +335,7 @@ $('saveBtn').onclick = guard(async () => {
   await api('/api/stock', 'POST', {product_id: id, quantity: +$('qty').value || 1, expires_on: $('exp').value || null});
   toast('Logged in'); resetForm(); await load(); show('items');
 });
+$('useBtn').onclick = guard(async () => { await startUse(await ensureProduct()); resetForm(); });
 $('finishBtn').onclick = guard(async () => { await finish(await ensureProduct()); resetForm(); });
 
 // Scanning uses a WebAssembly (zxing-cpp) barcode detector bundled in /static, so it works

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS units (
   product_id INTEGER NOT NULL REFERENCES products(id),
   added_on TEXT NOT NULL,
   expires_on TEXT,
+  opened_on TEXT,
   finished_on TEXT
 );
 CREATE TABLE IF NOT EXISTS notified (key TEXT PRIMARY KEY, sent_on TEXT NOT NULL);
@@ -58,6 +59,8 @@ def init_db():
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     with closing(db()) as c:
         c.executescript(SCHEMA)
+        if "opened_on" not in [r["name"] for r in c.execute("PRAGMA table_info(units)")]:
+            c.execute("ALTER TABLE units ADD COLUMN opened_on TEXT")
         # Carry over the single account created before multi-user support existed.
         old = {r["key"]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key IN ('auth_user','auth_hash')")}
         if old.get("auth_user") and old.get("auth_hash"):
@@ -166,32 +169,42 @@ def record_failure(ip: str):
 
 def product_stats(c, product_id: int, today: date, lead_days: int = 14) -> dict:
     rows = c.execute(
-        "SELECT added_on, expires_on, finished_on FROM units WHERE product_id=? ORDER BY added_on, id",
+        "SELECT added_on, expires_on, opened_on, finished_on FROM units WHERE product_id=? ORDER BY added_on, id",
         (product_id,),
     ).fetchall()
     finished = sorted(
-        (date.fromisoformat(r["finished_on"]), date.fromisoformat(r["added_on"]))
+        (date.fromisoformat(r["finished_on"]), date.fromisoformat(r["added_on"]), r["opened_on"])
         for r in rows
         if r["finished_on"]
     )
-    # A unit's use period starts when it was added or when the previous one ran out, whichever is later.
+    # Use period starts at the opened date when logged; otherwise when it was added or
+    # when the previous one ran out, whichever is later.
     durations, prev_finish = [], None
-    for fin, added in finished:
-        start = max(added, prev_finish) if prev_finish else added
+    for fin, added, opened in finished:
+        if opened:
+            start = date.fromisoformat(opened)
+        else:
+            start = max(added, prev_finish) if prev_finish else added
         durations.append(max((fin - start).days, 1))
         prev_finish = fin
     avg = sum(durations) / len(durations) if durations else None
 
     in_stock = [r for r in rows if not r["finished_on"]]
+    in_use = sorted(r["opened_on"] for r in in_stock if r["opened_on"])
     runout = restock_on = None
     if avg and in_stock:
-        first_added = date.fromisoformat(in_stock[0]["added_on"])
-        start = max(first_added, prev_finish) if prev_finish else first_added
+        if in_use:
+            start = date.fromisoformat(in_use[0])
+        else:
+            first_added = date.fromisoformat(in_stock[0]["added_on"])
+            start = max(first_added, prev_finish) if prev_finish else first_added
         runout = start + timedelta(days=round(avg * len(in_stock)))
         restock_on = runout - timedelta(days=lead_days)
     expiries = sorted(r["expires_on"] for r in in_stock if r["expires_on"])
     return {
         "in_stock": len(in_stock),
+        "in_use": len(in_use),
+        "in_use_since": in_use[0] if in_use else None,
         "avg_days_per_unit": round(avg, 1) if avg else None,
         "units_finished": len(finished),
         "predicted_runout": runout.isoformat() if runout else None,
@@ -465,11 +478,11 @@ def api_stock_in(body: StockIn):
 
 @app.post("/api/finish")
 def api_finish(body: FinishIn):
-    """Marks one unit finished, using the soonest-expiring in-stock unit first."""
+    """Marks one unit finished: the one in use first, else the soonest-expiring."""
     with closing(db()) as c:
         u = c.execute(
             "SELECT id FROM units WHERE product_id=? AND finished_on IS NULL "
-            "ORDER BY expires_on IS NULL, expires_on, added_on, id LIMIT 1",
+            "ORDER BY opened_on IS NULL, opened_on, expires_on IS NULL, expires_on, added_on, id LIMIT 1",
             (body.product_id,),
         ).fetchone()
         if not u:
@@ -478,6 +491,35 @@ def api_finish(body: FinishIn):
             "UPDATE units SET finished_on=? WHERE id=?",
             ((body.finished_on or date.today()).isoformat(), u["id"]),
         )
+        c.commit()
+    return {"ok": True}
+
+
+class OpenIn(BaseModel):
+    product_id: int
+    opened_on: Optional[date] = None
+
+
+@app.post("/api/open")
+def api_open(body: OpenIn):
+    """Marks one sealed unit as in use, soonest-expiring first."""
+    with closing(db()) as c:
+        u = c.execute(
+            "SELECT id FROM units WHERE product_id=? AND finished_on IS NULL AND opened_on IS NULL "
+            "ORDER BY expires_on IS NULL, expires_on, added_on, id LIMIT 1",
+            (body.product_id,),
+        ).fetchone()
+        if not u:
+            raise HTTPException(404, "no unopened units in stock")
+        c.execute("UPDATE units SET opened_on=? WHERE id=?", ((body.opened_on or date.today()).isoformat(), u["id"]))
+        c.commit()
+    return {"ok": True}
+
+
+@app.post("/api/units/{unit_id}/unopen")
+def api_unopen(unit_id: int):
+    with closing(db()) as c:
+        c.execute("UPDATE units SET opened_on=NULL WHERE id=? AND finished_on IS NULL", (unit_id,))
         c.commit()
     return {"ok": True}
 
@@ -559,7 +601,7 @@ def api_delete_product(product_id: int):
 def api_history():
     with closing(db()) as c:
         rows = c.execute(
-            "SELECT u.id, p.name, u.added_on, u.expires_on, u.finished_on FROM units u "
+            "SELECT u.id, p.name, u.added_on, u.expires_on, u.opened_on, u.finished_on FROM units u "
             "JOIN products p ON p.id=u.product_id ORDER BY u.id DESC LIMIT 200"
         ).fetchall()
     return [dict(r) for r in rows]
