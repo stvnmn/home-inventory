@@ -12,8 +12,6 @@ services:
     environment:
       DB_PATH: /data/inventory.db
       TZ: Etc/UTC
-      RESTOCK_LEAD_DAYS: 14
-      EXPIRY_WARN_DAYS: 30
     x-casaos:
       ports:
         - container: "8000"

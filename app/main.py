@@ -17,12 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 DB_PATH = os.getenv("DB_PATH", "/data/inventory.db")
-# Env values are only defaults; anything saved from the Settings page takes precedence.
+# Pushover environment values are defaults; saved settings take precedence.
 SETTING_DEFAULTS = {
     "pushover_token": os.getenv("PUSHOVER_APP_TOKEN", ""),
     "pushover_user": os.getenv("PUSHOVER_USER_KEY", ""),
-    "restock_lead_days": os.getenv("RESTOCK_LEAD_DAYS", "14"),
-    "expiry_warn_days": os.getenv("EXPIRY_WARN_DAYS", "30"),
+    "restock_lead_days": "14",
+    "expiry_warn_days": "30",
 }
 SESSION_DAYS = 30
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "3600"))

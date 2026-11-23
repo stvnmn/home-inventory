@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import closing
@@ -23,6 +26,21 @@ class InventoryTests(unittest.TestCase):
         self.client.close()
         main.DB_PATH = self.old_db_path
         self.temp.cleanup()
+
+    def test_alert_timing_uses_defaults_and_saved_settings_not_environment(self):
+        env = os.environ.copy()
+        env.update(DB_PATH=main.DB_PATH, RESTOCK_LEAD_DAYS="99", EXPIRY_WARN_DAYS="88")
+        command = [
+            sys.executable, "-c",
+            "from app.main import int_setting; "
+            "print(int_setting('restock_lead_days'), int_setting('expiry_warn_days'))",
+        ]
+        self.assertEqual(subprocess.check_output(command, env=env, text=True).strip(), "14 30")
+        response = self.client.put("/api/settings", json={"restock_lead_days": 7, "expiry_warn_days": 21})
+        self.assertEqual(response.status_code, 200)
+        config = self.client.get("/api/config").json()
+        self.assertEqual((config["restock_lead_days"], config["expiry_warn_days"]), (7, 21))
+        self.assertEqual(subprocess.check_output(command, env=env, text=True).strip(), "7 21")
 
     def test_edit_individual_expirations(self):
         product = self.client.post("/api/products", json={"name": "Milk", "category": "Fridge"}).json()["id"]

@@ -52,14 +52,14 @@ The tests cover per-unit expiration edits, usage averages, and restock timing. T
 
 ## Configuration
 
-Pushover keys and alert timing are set on the app's **Settings** page and saved in the database. Environment variables only provide the initial defaults; anything saved in Settings takes precedence.
+Pushover keys and alert timing are set on the app's **Settings** page and saved in the database. Alert timing defaults to 14 days for restocking and 30 days for expiration warnings. Pushover environment variables provide defaults; anything saved in Settings takes precedence.
+
+Older `RESTOCK_LEAD_DAYS` and `EXPIRY_WARN_DAYS` environment variables are no longer used. If you previously customized them without saving values in Settings, enter those values in **Settings → Alert timing** after updating. Existing saved settings are preserved.
 
 | Variable                 | Default              | Description                                                 |
 | ------------------------ | -------------------- | ----------------------------------------------------------- |
 | `DB_PATH`                | `/data/inventory.db` | SQLite database path inside the container                   |
 | `TZ`                     | `Etc/UTC`            | Timezone used for dates (added/used up/expiry calculations) |
-| `RESTOCK_LEAD_DAYS`      | `14`                 | Days before predicted run-out to send a restock reminder    |
-| `EXPIRY_WARN_DAYS`       | `30`                 | Days before expiration to warn                              |
 | `PUSHOVER_APP_TOKEN`     | empty                | Default Pushover app token (or set it in Settings)          |
 | `PUSHOVER_USER_KEY`      | empty                | Default Pushover user key (or set it in Settings)           |
 | `CHECK_INTERVAL_SECONDS` | `3600`               | How often the background alert check runs                   |
@@ -76,7 +76,7 @@ Browsers only allow camera access on HTTPS (or `localhost`). Scanning uses [barc
 - **Log used up:** marks one unit finished, the one in use first, otherwise soonest-expiring.
 - **Prediction:** the app averages the duration of all units ever marked used up for that product; discarded units are excluded. Each duration runs from the date it was opened, or, if not logged, from its added date or the previous finished unit's date, whichever is later. Each duration is at least one day. The predicted run-out is the earliest currently open unit's opened date (or, if none is open, the first in-stock unit's added date or the previous finish date, whichever is later), plus the average duration times all units in stock, rounded to whole days. A prediction needs at least one finished unit.
 - **Turnover:** above the Items filters, the fastest and slowest rankings show up to five products each, ordered by that same all-time average days per used-up unit. They include out-of-stock products, ignore Items filters, and show the number of used-up units behind each average. Products without usage history are omitted; a product can appear in both lists.
-- **Restock:** an item is marked for restock starting `RESTOCK_LEAD_DAYS` before its predicted run-out date and stays marked afterward, or when it is out of stock and has at least one finished unit. The default lead time is 14 days and can be changed in **Settings → Alert timing**.
+- **Restock:** an item is marked for restock starting the configured lead time before its predicted run-out date and stays marked afterward, or when it is out of stock and has at least one finished unit. The default lead time is 14 days and can be changed in **Settings → Alert timing**.
 - **Alerts:** checked hourly, each alert is sent once. Use **Settings → Run alert check now** to trigger a check manually.
 
 ## ZimaOS / CasaOS
