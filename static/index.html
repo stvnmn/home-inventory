@@ -60,6 +60,11 @@
   .stat.link { cursor: pointer; }
   @media (max-width: 380px) { .stats { grid-template-columns: repeat(2, 1fr); } }
   .stat b { font-size: 1.4rem; display: block; }
+  .turnover { margin: 10px 0 16px; }
+  .turnover h2 { margin-bottom: 4px; font-size: 1.1rem; }
+  .turnover h3 { margin: 0 0 8px; font-size: 1rem; }
+  .turnover ol { margin: 0; padding-left: 1.5em; }
+  .turnover li { padding: 4px 0; overflow-wrap: anywhere; }
   #reader { width: 100%; position: relative; display: none; margin: 8px 0; }
   #reader video { width: 100%; border-radius: 8px; background: #000; display: block; }
   #reader .guide { position: absolute; left: 6%; right: 6%; top: 30%; bottom: 30%; border: 2px solid #22c55e; border-radius: 8px; pointer-events: none; }
@@ -84,6 +89,14 @@
       <div class="stat"><b id="sExpiring">0</b><span class="muted">Expiring</span></div>
       <div class="stat" id="wasteCard"><b id="sWaste">0</b><span class="muted">Discarded (30d)</span></div>
     </div>
+    <section class="turnover" aria-labelledby="turnoverTitle">
+      <h2 id="turnoverTitle">Item turnover</h2>
+      <p class="muted">All products ranked by average days per used-up unit, across all recorded history. Discarded units are excluded; fewer days means faster turnover. Rankings are independent of filters.</p>
+      <div class="grid">
+        <div class="card"><h3>Fastest turnover</h3><div id="fastTurnover"></div></div>
+        <div class="card"><h3>Slowest turnover</h3><div id="slowTurnover"></div></div>
+      </div>
+    </section>
     <div class="filters">
       <input id="search" type="search" placeholder="Search items or category…">
       <select id="catFilter" aria-label="Filter by category"></select>
@@ -263,6 +276,17 @@ function renderItems() {
   $('list').innerHTML = rows.map(card).join('') || '<p class="muted">Nothing here.</p>';
 }
 
+function renderTurnover() {
+  const ranked = items.filter(p => p.avg_days_per_unit != null)
+    .sort((a, b) => a.avg_days_per_unit - b.avg_days_per_unit || a.name.localeCompare(b.name) || a.id - b.id);
+  const render = rows => rows.length ? `<ol>${rows.map(p => `<li><strong>${esc(p.name)}</strong>
+    <span class="muted">~${p.avg_days_per_unit} day${p.avg_days_per_unit === 1 ? '' : 's'} per unit · ${p.units_finished} used up</span></li>`).join('')}</ol>`
+    : '<p class="muted">No usage data yet. Mark an item as used up to see turnover.</p>';
+  $('fastTurnover').innerHTML = render(ranked.slice(0, 5));
+  $('slowTurnover').innerHTML = render([...ranked].sort((a, b) =>
+    b.avg_days_per_unit - a.avg_days_per_unit || a.name.localeCompare(b.name) || a.id - b.id).slice(0, 5));
+}
+
 const UNCAT = '\u0000uncategorized';
 function renderCategories() {
   const sel = $('catFilter'), prev = sel.value;
@@ -302,7 +326,7 @@ async function load() {
   $('poUser').value = cfg.pushover_user || '';
   $('leadDays').value = cfg.restock_lead_days; $('warnDays').value = cfg.expiry_warn_days;
   $('whoami').textContent = `Signed in as ${cfg.username}`;
-  renderItems(); renderAlerts();
+  renderItems(); renderTurnover(); renderAlerts();
 }
 
 $('search').oninput = renderItems;
