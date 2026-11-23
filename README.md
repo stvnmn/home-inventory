@@ -40,6 +40,16 @@ python3 -m venv .venv
 
 An optional `.env` file is loaded automatically, and data goes in `./data/inventory.db`.
 
+## Running tests
+
+After installing the dependencies as shown above, run this from the repository root:
+
+```
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+The tests cover per-unit expiration edits, usage averages, and restock timing. They use a temporary database and do not modify your inventory. Running them is optional and is not required to deploy the app.
+
 ## Configuration
 
 Pushover keys and alert timing are set on the app's **Settings** page and saved in the database. Environment variables only provide the initial defaults; anything saved in Settings takes precedence.
@@ -60,10 +70,12 @@ Browsers only allow camera access on HTTPS (or `localhost`). Scanning uses [barc
 
 ## How it works
 
-- **Log in:** scan or type a barcode, add a quantity and optional expiry date.
+- **Log in:** scan or type a barcode, choose an existing category or add a new one, and enter a quantity and optional expiry date. The date applies to each unit added in that operation.
+- **Edit stock:** in **Items**, select **Edit** to set or clear the expiration date for each unit in stock. Save each date separately; editing one unit does not change the others.
 - **Start using:** marks one sealed unit as in use (soonest-expiring first). Items show an **In use** tag and a filter chip.
 - **Log used up:** marks one unit finished, the one in use first, otherwise soonest-expiring.
-- **Prediction:** the average days each unit lasted (from when you started using it, or if that wasn't logged, from when it was added or the previous one ran out, whichever is later) times the units in stock. The restock alert fires `RESTOCK_LEAD_DAYS` before the predicted run-out, or when stock hits 0 after past usage. A prediction needs at least one finished unit.
+- **Prediction:** the app averages the duration of all units ever marked used up for that product; discarded units are excluded. Each duration runs from the date it was opened, or, if not logged, from its added date or the previous finished unit's date, whichever is later. Each duration is at least one day. The predicted run-out is the earliest currently open unit's opened date (or, if none is open, the first in-stock unit's added date or the previous finish date, whichever is later), plus the average duration times all units in stock, rounded to whole days. A prediction needs at least one finished unit.
+- **Restock:** an item is marked for restock starting `RESTOCK_LEAD_DAYS` before its predicted run-out date and stays marked afterward, or when it is out of stock and has at least one finished unit. The default lead time is 14 days and can be changed in **Settings → Alert timing**.
 - **Alerts:** checked hourly, each alert is sent once. Use **Settings → Run alert check now** to trigger a check manually.
 
 ## ZimaOS / CasaOS

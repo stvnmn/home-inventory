@@ -176,9 +176,12 @@ def product_stats(c, product_id: int, today: date, lead_days: int = 14) -> dict:
         (product_id,),
     ).fetchall()
     finished = sorted(
-        (date.fromisoformat(r["finished_on"]), date.fromisoformat(r["added_on"]), r["opened_on"])
-        for r in rows
-        if r["finished_on"] and not r["discarded"]
+        (
+            (date.fromisoformat(r["finished_on"]), date.fromisoformat(r["added_on"]), r["opened_on"])
+            for r in rows
+            if r["finished_on"] and not r["discarded"]
+        ),
+        key=lambda unit: (unit[0], unit[1]),
     )
     # Use period starts at the opened date when logged; otherwise when it was added or
     # when the previous one ran out, whichever is later.
@@ -640,6 +643,39 @@ def api_history():
             "JOIN products p ON p.id=u.product_id ORDER BY u.id DESC LIMIT 200"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/products/{product_id}/units")
+def api_product_units(product_id: int):
+    with closing(db()) as c:
+        if not c.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
+            raise HTTPException(404, "product not found")
+        rows = c.execute(
+            "SELECT id, added_on, expires_on, opened_on FROM units "
+            "WHERE product_id=? AND finished_on IS NULL ORDER BY added_on, id",
+            (product_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+class UnitExpiryPatch(BaseModel):
+    expires_on: Optional[date]
+
+
+@app.patch("/api/units/{unit_id}")
+def api_edit_unit(unit_id: int, body: UnitExpiryPatch):
+    expires_on = body.expires_on.isoformat() if body.expires_on else None
+    with closing(db()) as c:
+        unit = c.execute(
+            "SELECT expires_on FROM units WHERE id=? AND finished_on IS NULL", (unit_id,)
+        ).fetchone()
+        if not unit:
+            raise HTTPException(404, "unit not in stock")
+        if unit["expires_on"] != expires_on:
+            c.execute("UPDATE units SET expires_on=? WHERE id=?", (expires_on, unit_id))
+            c.execute("DELETE FROM notified WHERE key=?", (f"expiry:{unit_id}",))
+            c.commit()
+    return {"ok": True}
 
 
 @app.post("/api/units/{unit_id}/unfinish")

@@ -43,7 +43,7 @@
   button.sm { padding: 5px 9px; font-size: .85rem; }
   input, select { padding: 9px; font-size: 1rem; width: 100%; margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--ink); }
   .filters { display: flex; gap: 8px; flex-wrap: wrap; } .filters > * { flex: 1 1 180px; }
-  dialog { width: min(92vw, 400px); border: 0; border-radius: 12px; padding: 16px; background: var(--card); color: var(--ink); }
+  dialog { width: min(92vw, 400px); max-height: 90vh; overflow-y: auto; border: 0; border-radius: 12px; padding: 16px; background: var(--card); color: var(--ink); }
   dialog::backdrop { background: #0008; }
   .catrow { display: flex; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
   .catrow span { flex: 1; word-break: break-word; }
@@ -107,7 +107,9 @@
       <button class="b alt" id="lookupBtn">Look up / continue without barcode</button>
       <div id="addForm" style="display:none">
         <input id="name" placeholder="Item name">
-        <input id="category" placeholder="Category (e.g. Bathroom, Pantry)" list="cats">
+        <label class="muted" for="category">Category</label>
+        <select id="category"></select>
+        <input id="newItemCategory" placeholder="New category name" maxlength="40" style="display:none">
         <datalist id="cats"></datalist>
         <input id="qty" type="number" min="1" max="100" value="1">
         <label class="muted">Expiration date (optional)</label>
@@ -179,6 +181,7 @@
     <input id="editCat" list="cats" maxlength="40">
     <div class="actions"><button class="b" type="submit">Save</button><button class="b alt" type="button" id="editCancel">Cancel</button></div>
   </form>
+  <div id="editUnits"></div>
 </dialog>
 <div id="toast"></div>
 
@@ -267,6 +270,12 @@ function renderCategories() {
     + categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)} (${c.products})</option>`).join('')
     + `<option value="${UNCAT}">Uncategorized</option>`;
   sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+  const addSel = $('category'), addPrev = addSel.value, wasNew = addSel.selectedOptions[0]?.dataset.new === 'true';
+  addSel.innerHTML = '<option value="">Uncategorized</option>'
+    + categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')
+    + '<option data-new="true">Add a new category…</option>';
+  if (wasNew) addSel.selectedIndex = addSel.options.length - 1;
+  else addSel.value = [...addSel.options].some(o => !o.dataset.new && o.value === addPrev) ? addPrev : '';
   $('cats').innerHTML = categories.map(c => `<option value="${esc(c.name)}">`).join('');
   $('catList').innerHTML = categories.map((c, i) => `<div class="catrow"><span>${esc(c.name)} <small class="muted">${c.products} item${c.products === 1 ? '' : 's'}</small></span>
     <button class="b sm alt" onclick="renameCat(${i})">Rename</button><button class="b sm danger" onclick="delCat(${i})">Delete</button></div>`).join('')
@@ -341,13 +350,32 @@ window.quickAdd = guard(async id => {
   toast('Stocked'); await load();
 });
 let editingId = null;
-window.editItem = id => {
+async function loadEditUnits(id) {
+  const units = await api('/api/products/' + id + '/units');
+  if (editingId !== id || !$('editDlg').open) return;
+  $('editUnits').innerHTML = '<h3>Stock expiration dates</h3>' + (units.map(u => `
+    <div class="catrow">
+      <div style="flex:1">
+        <label class="muted" for="unitExp${u.id}">Unit #${u.id} · added ${esc(u.added_on)}${u.opened_on ? ' · in use' : ''}</label>
+        <input id="unitExp${u.id}" type="date" value="${esc(u.expires_on || '')}">
+      </div>
+      <button class="b sm" type="button" onclick="saveUnitExpiry(${u.id})">Save date</button>
+    </div>`).join('') || '<p class="muted">No units in stock.</p>');
+}
+window.editItem = guard(async id => {
   const p = items.find(x => x.id === id);
   editingId = id;
   $('editName').value = p.name;
   $('editCat').value = p.category || '';
+  $('editUnits').innerHTML = '<p class="muted">Loading stock…</p>';
   $('editDlg').showModal();
-};
+  await loadEditUnits(id);
+});
+window.saveUnitExpiry = guard(async id => {
+  await api('/api/units/' + id, 'PATCH', {expires_on: $('unitExp' + id).value || null});
+  toast('Expiration date saved');
+  await load();
+});
 $('editCancel').onclick = () => $('editDlg').close();
 $('editForm').onsubmit = guard(async e => {
   e.preventDefault();
@@ -399,11 +427,21 @@ $('changePw').onclick = guard(async () => {
 $('logoutBtn').onclick = async () => { await fetch('/api/auth/logout', {method: 'POST'}); location.href = '/login'; };
 
 // Add / scan
+$('category').onchange = () => {
+  $('newItemCategory').style.display = $('category').selectedOptions[0]?.dataset.new === 'true' ? 'block' : 'none';
+};
+function selectedCategory() {
+  if ($('category').selectedOptions[0]?.dataset.new !== 'true') return $('category').value || null;
+  const name = $('newItemCategory').value.trim();
+  if (!name || name.length > 40 || name.includes('/')) throw new Error("Category name must be 1-40 characters and can't contain /");
+  return name;
+}
 async function lookup() {
   const code = $('barcode').value.trim();
   currentProductId = null;
   $('addForm').style.display = 'block';
   $('name').disabled = false;
+  $('category').value = ''; $('newItemCategory').value = ''; $('category').onchange();
   if (!code) { $('name').value = ''; return; }
   const r = await api('/api/barcode/' + encodeURIComponent(code));
   if (r.known) {
@@ -417,15 +455,24 @@ async function lookup() {
   }
 }
 async function ensureProduct() {
-  if (currentProductId) return currentProductId;
+  const category = selectedCategory();
+  if (currentProductId) {
+    const existing = items.find(p => p.id === currentProductId);
+    if (existing && existing.category !== category) await api('/api/products/' + currentProductId, 'PATCH', {category: category || ''});
+    return currentProductId;
+  }
   const name = $('name').value.trim();
   if (!name) throw new Error('Enter a name');
   const existing = items.find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (existing) return existing.id;
-  return (await api('/api/products', 'POST', {name, barcode: $('barcode').value.trim() || null, category: $('category').value.trim() || null})).id;
+  if (existing) {
+    if (category && existing.category !== category) await api('/api/products/' + existing.id, 'PATCH', {category});
+    return existing.id;
+  }
+  return (await api('/api/products', 'POST', {name, barcode: $('barcode').value.trim() || null, category})).id;
 }
 function resetForm() {
-  ['barcode', 'name', 'category', 'exp'].forEach(i => $(i).value = '');
+  ['barcode', 'name', 'category', 'newItemCategory', 'exp'].forEach(i => $(i).value = '');
+  $('category').onchange();
   $('qty').value = 1; $('name').disabled = false; currentProductId = null; $('addForm').style.display = 'none';
 }
 $('lookupBtn').onclick = guard(lookup);
